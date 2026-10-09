@@ -68,16 +68,23 @@ class KeyboardEntryActivity : public Activity {
 
   bool confirmHeld = false;
   bool confirmLongHandled = false;
+  // Per-button press edge timestamps: long-press thresholds must run from the
+  // button's OWN press, not the SDK's shared combo start. On V2, BOOT (Back) is
+  // down first as the chord modifier, so getHeldTime() during a Confirm click
+  // reports time since BOOT — past the long-press threshold almost immediately.
+  unsigned long confirmPressMs = 0;
 
   bool cursorMode = false;
   bool togglePos = false;
   size_t cursorPos = 0;  // byte offset into text (always on a code point boundary)
   bool upHeld = false;
   bool upLongHandled = false;
+  unsigned long upPressMs = 0;
   bool downHeld = false;
   bool downLongHandled = false;
   bool rightHeld = false;
   bool rightLongHandled = false;
+  unsigned long rightPressMs = 0;
   size_t savedCursorPos = 0;
   size_t rightStartCursorPos = 0;
 

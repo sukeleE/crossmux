@@ -16,6 +16,9 @@ namespace fui = freeink::ui;
 
 void MappedInputManager::update() const {
   gpio.update();
+#if FREEINK_DEVICE_WAVESHARE_EPAPER_397_V2
+  updateBackChord();
+#endif
 #if FREEINK_CAP_BLE_HID_HOST
   BleHid.poll();
   pollBle();
@@ -24,6 +27,42 @@ void MappedInputManager::update() const {
     if (!isPressed(static_cast<Button>(value))) longPressFiredButtons &= ~(1u << value);
   }
 }
+
+#if FREEINK_DEVICE_WAVESHARE_EPAPER_397_V2
+void MappedInputManager::updateBackChord() const {
+  chordLeftRightPressEdges.fill(false);
+  chordLeftRightReleaseEdges.fill(false);
+  chordBackReleaseSuppressed = false;
+
+  const bool backDown = gpio.isPressed(HalGPIO::BTN_BACK);
+  const bool backJustPressed = backDown && !chordBackDown;
+  const bool backJustReleased = !backDown && chordBackDown;
+  if (backJustPressed) chordUsed = false;  // start of a fresh Back press
+  chordBackDown = backDown;
+
+  if (backJustReleased) {
+    // This Back press modified a chord: swallow its release so it doesn't navigate back.
+    chordBackReleaseSuppressed = chordUsed;
+    chordUsed = false;
+    return;
+  }
+  if (!backDown) return;
+
+  // Back held: the wheel ticks Up/Down are reported as Left/Right.
+  if (gpio.wasPressed(HalGPIO::BTN_UP)) {
+    chordLeftRightPressEdges[static_cast<uint8_t>(Button::Left)] = true;
+    chordUsed = true;
+  }
+  if (gpio.wasPressed(HalGPIO::BTN_DOWN)) {
+    chordLeftRightPressEdges[static_cast<uint8_t>(Button::Right)] = true;
+    chordUsed = true;
+  }
+  if (gpio.wasReleased(HalGPIO::BTN_UP))
+    chordLeftRightReleaseEdges[static_cast<uint8_t>(Button::Left)] = true;
+  if (gpio.wasReleased(HalGPIO::BTN_DOWN))
+    chordLeftRightReleaseEdges[static_cast<uint8_t>(Button::Right)] = true;
+}
+#endif
 
 bool MappedInputManager::isNavDirectionSwapped() const {
   // Touch boards always follow the rendered orientation; button-only boards keep the user toggle.
@@ -471,6 +510,13 @@ bool MappedInputManager::wasPressed(const Button button) const {
 #if FREEINK_CAP_TOUCH
   if (button == Button::Confirm && wasPowerConfirmClick()) return true;
 #endif
+#if FREEINK_DEVICE_WAVESHARE_EPAPER_397_V2
+  // While BOOT (Back) is held the wheel ticks are the chord's Left/Right, not Up/Down.
+  if ((button == Button::Up || button == Button::Down) && chordBackDown) return false;
+  if ((button == Button::Left || button == Button::Right) &&
+      chordLeftRightPressEdges[static_cast<uint8_t>(button)])
+    return true;
+#endif
   return mapButton(button, &HalGPIO::wasPressed) || bleEdge(blePressEdges, button);
 }
 
@@ -481,6 +527,14 @@ bool MappedInputManager::wasReleased(const Button button) const {
 #endif
 #if FREEINK_CAP_TOUCH
   if (button == Button::Confirm && wasPowerConfirmClick()) return true;
+#endif
+#if FREEINK_DEVICE_WAVESHARE_EPAPER_397_V2
+  if ((button == Button::Up || button == Button::Down) && chordBackDown) return false;
+  if ((button == Button::Left || button == Button::Right) &&
+      chordLeftRightReleaseEdges[static_cast<uint8_t>(button)])
+    return true;
+  // A Back press used as the chord modifier must not navigate back.
+  if (button == Button::Back && chordBackReleaseSuppressed) return false;
 #endif
   return mapButton(button, &HalGPIO::wasReleased) || bleEdge(bleReleaseEdges, button);
 }
@@ -511,6 +565,9 @@ bool MappedInputManager::consumeSuppressedRelease() const {
 }
 
 bool MappedInputManager::isPressed(const Button button) const {
+#if FREEINK_DEVICE_WAVESHARE_EPAPER_397_V2
+  if ((button == Button::Up || button == Button::Down) && chordBackDown) return false;
+#endif
   return mapButton(button, &HalGPIO::isPressed) || bleEdge(blePressEdges, button);
 }
 

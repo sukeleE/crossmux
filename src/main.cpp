@@ -11,6 +11,9 @@
 #include <HalOtaSlot.h>
 #include <HalPowerManager.h>
 #include <HalStorage.h>
+#if CROSSPOINT_CAP_SOUND_FEEDBACK
+#include <HalAudioOutput.h>
+#endif
 #include <HalSystem.h>
 #include <HalTiltSensor.h>
 #include <I18n.h>
@@ -57,6 +60,16 @@
 
 #if CROSSPOINT_CAP_SOUND_FEEDBACK
 #include <SoundFeedback.h>
+#if FREEINK_DEVICE_WAVESHARE_EPAPER_397_V2
+#include "activities/apps/music-player/MusicEngine.h"
+#include "activities/apps/music-player/MusicCache.h"
+#endif
+#endif
+
+#if FREEINK_DEVICE_WAVESHARE_EPAPER_397_V2
+#include "NetworkStartup.h"
+#include "WifiCredentialStore.h"
+#include "activities/apps/music-player/OnlineMusicApi.h"
 #endif
 
 GfxRenderer renderer(display);
@@ -654,6 +667,36 @@ void setup() {
 #endif
   halClock.setAutoSyncEnabled(SETTINGS.clockAutoSync != 0);
   APP_STATE.loadFromFile();
+  MusicCache::begin();  // on-SD cache tree/ledger; best effort
+  LOG_INF("MP", "state loaded cookie=%u csrf=%u uid=%llu phone=%u",
+          static_cast<unsigned>(APP_STATE.musicCookie.size()),
+          static_cast<unsigned>(APP_STATE.musicCsrf.size()),
+          static_cast<unsigned long long>(APP_STATE.musicUserId),
+          static_cast<unsigned>(APP_STATE.musicPhone.size()));
+#if CROSSPOINT_CAP_SOUND_FEEDBACK && FREEINK_DEVICE_WAVESHARE_EPAPER_397_V2
+  MusicEngine::getInstance().restoreSettings(APP_STATE.musicMode, APP_STATE.musicVolume);
+#endif
+
+#if FREEINK_DEVICE_WAVESHARE_EPAPER_397_V2
+  // Read the last WiFi credential now, before the display/render task starts
+  // (SD shares SPI with the panel), and reinstall the persisted NetEase session
+  // in memory. Neither blocks on the radio: association is kicked off later,
+  // after the display is up, and is not awaited here.
+  std::string bootSsid;
+  std::string bootPass;
+  if (WIFI_STORE.getCredentialCount() == 0) WIFI_STORE.loadFromFile();
+  const std::string bootLastSsid = WIFI_STORE.getLastConnectedSsid();
+  if (auto cred = WIFI_STORE.findCredential(bootLastSsid)) {
+    bootSsid = cred->ssid;
+    bootPass = cred->password;
+  }
+  if (!APP_STATE.musicCookie.empty()) {
+    OnlineMusicApi::setSession(APP_STATE.musicCookie, APP_STATE.musicCsrf);
+  }
+  LOG_INF("MP", "boot prep lastSsid=%u cookie=%u", static_cast<unsigned>(bootSsid.size()),
+          static_cast<unsigned>(APP_STATE.musicCookie.size()));
+#endif
+
   const bool isSleepWake = wakeupReason == HalGPIO::WakeupReason::PowerButton;
   const bool isPersistedSleepWake = isSleepWake && !APP_STATE.showBootScreen;
 
@@ -693,7 +736,8 @@ void setup() {
       // Most devices return to sleep after a USB-powered cold boot.
       LOG_DBG("MAIN", "Wakeup reason: After USB Power");
 #if FREEINK_DEVICE_X4PRO || FREEINK_DEVICE_X4CLASSIC || FREEINK_DEVICE_PAPERMONO || FREEINK_DEVICE_EEGO_A4 || \
-    FREEINK_DEVICE_WAVESHARE_EPAPER_397 || FREEINK_DEVICE_METALIO_EINK4 || FREEINK_DEVICE_READPICO
+    FREEINK_DEVICE_WAVESHARE_EPAPER_397 || FREEINK_DEVICE_WAVESHARE_EPAPER_397_V2 || \
+    FREEINK_DEVICE_METALIO_EINK4 || FREEINK_DEVICE_READPICO
       // X4 Pro must stay awake so USB Serial/JTAG remains available after leaving
       // USB Drive and reconnecting the cable. Paper Mono has no armable GPIO wake
       // (its button is behind the PMIC). EEGO A4's post-flash reset reads as
@@ -737,6 +781,24 @@ void setup() {
 
   const bool fontsReady = setupDisplayAndFonts(resume != BootResume::Splash,
                                                snapshotTarget == SilentRebootTarget::ReaderPreloadChineseFont);
+
+#if FREEINK_DEVICE_WAVESHARE_EPAPER_397_V2
+  // Kick off the background association now that the display/render task exists
+  // (NetworkStartup::prepare may release font caches). Not awaited: the Home
+  // WiFi indicator reflects progress and boot continues immediately.
+  if (!bootSsid.empty()) {
+    WiFi.persistent(false);
+    NetworkStartup::setMode(renderer, WIFI_STA);
+    WiFi.disconnect(true, true);
+    delay(100);
+    if (bootPass.empty())
+      WiFi.begin(bootSsid.c_str());
+    else
+      WiFi.begin(bootSsid.c_str(), bootPass.c_str());
+    LOG_INF("MP", "boot silent WiFi begin");
+  }
+#endif
+
   const bool postOtaBoot = otaPendingAtBoot && fontsReady && activityManager.goToPostOtaBoot(!recoveryFirmwareMode);
 
   if (!postOtaBoot) {
@@ -876,7 +938,18 @@ void loop() {
   }
 
 #if CROSSPOINT_CAP_SOUND_FEEDBACK
-  SoundFeedback::update(SETTINGS.soundFeedbackLevel, gpio.physicalPressedMask());
+#if FREEINK_DEVICE_WAVESHARE_EPAPER_397_V2
+  // Key clicks would preempt the music stream; suppress them while a player
+  // session (or the short gap between its tracks) is active.
+  if (!MusicEngine::getInstance().soundSuppressed())
+#endif
+  {
+    SoundFeedback::update(SETTINGS.soundFeedbackLevel, gpio.physicalPressedMask());
+  }
+#if FREEINK_DEVICE_WAVESHARE_EPAPER_397_V2
+  // Auto-advance between tracks on natural end.
+  MusicEngine::getInstance().update();
+#endif
 #endif
 
   if (activityManager.requiresExclusiveStorageLoop()) {
@@ -901,8 +974,9 @@ void loop() {
   renderer.setFadingFix(SETTINGS.fadingFix);
 
   if (Serial && millis() - lastMemPrint >= 10000) {
-    LOG_INF("MEM", "Free: %d bytes, Total: %d bytes, Min Free: %d bytes, MaxAlloc: %d bytes", ESP.getFreeHeap(),
-            ESP.getHeapSize(), ESP.getMinFreeHeap(), ESP.getMaxAllocHeap());
+    LOG_INF("MEM", "Free: %d bytes, Total: %d bytes, Min Free: %d bytes, MaxAlloc: %d bytes | PSRAM free: %d / %d bytes",
+            ESP.getFreeHeap(), ESP.getHeapSize(), ESP.getMinFreeHeap(), ESP.getMaxAllocHeap(),
+            ESP.getFreePsram(), ESP.getPsramSize());
     if (bleinput::isRunning()) bleinput::logDiagnostics("running");
     lastMemPrint = millis();
   }
@@ -977,7 +1051,15 @@ void loop() {
 #endif
 
   const unsigned long sleepTimeoutMs = SETTINGS.getSleepTimeoutMs();
-  if (sleepTimeoutMs > 0 && !activityManager.preventAutoSleep() && millis() - lastActivityTime >= sleepTimeoutMs) {
+#if CROSSPOINT_CAP_SOUND_FEEDBACK
+  // The audio task bumps no activity timestamp, so streaming (e.g. the WAV
+  // self-test) would otherwise be cut by inactivity sleep.
+  const bool audioBlockingSleep = HalAudioOutput::playbackRunning();
+#else
+  constexpr bool audioBlockingSleep = false;
+#endif
+  if (sleepTimeoutMs > 0 && !activityManager.preventAutoSleep() && !audioBlockingSleep &&
+      millis() - lastActivityTime >= sleepTimeoutMs) {
     LOG_DBG("SLP", "Auto-sleep triggered after %lu ms of inactivity", sleepTimeoutMs);
     enterDeepSleep(true);
     // This should never be hit as `enterDeepSleep` calls esp_deep_sleep_start
@@ -1033,6 +1115,12 @@ void loop() {
     activityManager.requestUpdate();
   }
 #endif
+
+  static unsigned long lastMainHb = 0;
+  if (millis() - lastMainHb >= 2000) {
+    lastMainHb = millis();
+    LOG_INF("MAIN", "hb reaching activityManager.loop");
+  }
 
   const unsigned long activityStartTime = millis();
   const bool readerWasActive = activityManager.isReaderActivity();

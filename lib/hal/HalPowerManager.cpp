@@ -21,7 +21,11 @@
 #endif
 
 #include "HalGPIO.h"
+#if FREEINK_DEVICE_WAVESHARE_EPAPER_397
 #include "Waveshare397Power.h"
+#elif FREEINK_DEVICE_WAVESHARE_EPAPER_397_V2
+#include "Waveshare397V2Power.h"
+#endif
 
 #if FREEINK_DEVICE_PAPERMONO
 #include <M5Pm1.h>
@@ -167,6 +171,8 @@ void HalPowerManager::begin() {
 #endif
 #if FREEINK_DEVICE_WAVESHARE_EPAPER_397
   if (!Waveshare397Power::begin()) LOG_ERR("PWR", "AXP2101 initialization failed");
+#elif FREEINK_DEVICE_WAVESHARE_EPAPER_397_V2
+  if (!Waveshare397V2Power::begin()) LOG_ERR("PWR", "AXP2101 initialization failed");
 #endif
   if (BoardConfig::ACTIVE.batteryAdc >= 0) {
     pinMode(BoardConfig::ACTIVE.batteryAdc, INPUT);
@@ -219,6 +225,8 @@ void HalPowerManager::setPowerSaving(bool enabled) {
 void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
 #if FREEINK_DEVICE_WAVESHARE_EPAPER_397
   Waveshare397Power::waitForPowerButtonRelease();
+#elif FREEINK_DEVICE_WAVESHARE_EPAPER_397_V2
+  Waveshare397V2Power::waitForPowerButtonRelease();
 #endif
 #if defined(ENABLE_SERIAL_LOG) && !FREEINK_DEVICE_METALIO_EINK4 && !FREEINK_DEVICE_READPICO
   // Tear down HWCDC so the host sees a clean disconnect and the peripheral
@@ -282,8 +290,13 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
 #else
   freeink::PowerManager::powerDownRailsForSleep();
 
+#if FREEINK_DEVICE_WAVESHARE_EPAPER_397 || FREEINK_DEVICE_WAVESHARE_EPAPER_397_V2
 #if FREEINK_DEVICE_WAVESHARE_EPAPER_397
-  if (Waveshare397Power::shutdown()) {
+  const bool pmicPoweredOff = Waveshare397Power::shutdown();
+#else
+  const bool pmicPoweredOff = Waveshare397V2Power::shutdown();
+#endif
+  if (pmicPoweredOff) {
     delay(500);  // Battery power normally disappears before this returns.
   } else {
     LOG_ERR("PWR", "AXP2101 shutdown failed; falling back to ESP deep sleep");
@@ -304,7 +317,7 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
   }
 #endif
 
-#if !FREEINK_DEVICE_WAVESHARE_EPAPER_397
+#if !FREEINK_DEVICE_WAVESHARE_EPAPER_397 && !FREEINK_DEVICE_WAVESHARE_EPAPER_397_V2
   // Waits for the power button to be physically released (so holding it doesn't
   // immediately wake the device again), then arms the wake source and sleeps.
   freeink::PowerManager::deepSleepUntilPowerButton();
@@ -410,12 +423,17 @@ HalPowerManager::LightSleepWakeReason HalPowerManager::lightSleepFor(const uint3
 }
 
 uint16_t HalPowerManager::getBatteryPercentage() const {
-#if FREEINK_DEVICE_WAVESHARE_EPAPER_397
+#if FREEINK_DEVICE_WAVESHARE_EPAPER_397 || FREEINK_DEVICE_WAVESHARE_EPAPER_397_V2
   const unsigned long now = millis();
   if (_batteryLastPollMs != 0 && (now - _batteryLastPollMs) < BATTERY_POLL_MS) return _batteryCachedPercent;
   _batteryLastPollMs = now;
   uint16_t percent = 0;
-  if (Waveshare397Power::readBatteryPercentage(percent)) _batteryCachedPercent = percent;
+#if FREEINK_DEVICE_WAVESHARE_EPAPER_397
+  const bool readOk = Waveshare397Power::readBatteryPercentage(percent);
+#else
+  const bool readOk = Waveshare397V2Power::readBatteryPercentage(percent);
+#endif
+  if (readOk) _batteryCachedPercent = percent;
   return _batteryCachedPercent;
 #endif
 

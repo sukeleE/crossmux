@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <functional>
 
 #include "activities/Activity.h"
@@ -25,6 +26,7 @@ class ClearCacheActivity final : public Activity {
 
   int clearedCount = 0;
   int failedCount = 0;
+  uint64_t musicCacheBytes_ = 0;  // online music cache size shown in WARNING
   OptionPopup confirmPopup;
   void beginClear();
   void clearCache();

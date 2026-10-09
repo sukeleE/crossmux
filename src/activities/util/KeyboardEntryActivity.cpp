@@ -136,6 +136,9 @@ void KeyboardEntryActivity::onEnter() {
   hintShowTime = 0;
   rightHeld = false;
   rightLongHandled = false;
+  confirmPressMs = 0;
+  upPressMs = 0;
+  rightPressMs = 0;
   savedCursorPos = 0;
   rightStartCursorPos = 0;
   touchRouter.reset();
@@ -610,10 +613,11 @@ void KeyboardEntryActivity::loop() {
   if (!cursorMode && mappedInput.wasPressed(MappedInputManager::Button::Up)) {
     upHeld = true;
     upLongHandled = false;
+    upPressMs = millis();
   }
 
   if (upHeld && !upLongHandled && mappedInput.isPressed(MappedInputManager::Button::Up) &&
-      mappedInput.getHeldTime() > LONG_PRESS_MS) {
+      millis() - upPressMs > LONG_PRESS_MS) {
     cursorMode = true;
     upLongHandled = true;
     hintVisible = true;
@@ -673,6 +677,7 @@ void KeyboardEntryActivity::loop() {
   }
 
   if (mappedInput.wasPressed(MappedInputManager::Button::Right)) {
+    rightPressMs = millis();
     if (cursorMode && inputType == InputType::Password && !togglePos) {
       rightHeld = true;
       rightLongHandled = false;
@@ -687,7 +692,7 @@ void KeyboardEntryActivity::loop() {
   });
 
   if (rightHeld && !rightLongHandled && mappedInput.isPressed(MappedInputManager::Button::Right) &&
-      mappedInput.getHeldTime() > LONG_PRESS_MS) {
+      millis() - rightPressMs > LONG_PRESS_MS) {
     if (cursorMode && inputType == InputType::Password && !togglePos) {
       savedCursorPos = rightStartCursorPos;
       togglePos = true;
@@ -713,20 +718,21 @@ void KeyboardEntryActivity::loop() {
   if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
     confirmHeld = true;
     confirmLongHandled = false;
+    confirmPressMs = millis();
   }
 
   const fui::KeyboardKey* selKey = selectedKey();
   const bool selectedDel = selKey && selKey->value == fui::QWERTY_KEY_BACKSPACE;
 
   if (confirmHeld && !confirmLongHandled && mappedInput.isPressed(MappedInputManager::Button::Confirm) &&
-      mappedInput.getHeldTime() > DEL_LONG_PRESS_MS && selectedDel) {
+      millis() - confirmPressMs > DEL_LONG_PRESS_MS && selectedDel) {
     clearAllOrAltOnSelected();
     confirmLongHandled = true;
     requestUpdate();
   }
 
   if (confirmHeld && !confirmLongHandled && mappedInput.isPressed(MappedInputManager::Button::Confirm) &&
-      mappedInput.getHeldTime() > LONG_PRESS_MS) {
+      millis() - confirmPressMs > LONG_PRESS_MS) {
     if (!selectedDel && clearAllOrAltOnSelected()) {
       requestUpdate();
       confirmLongHandled = true;

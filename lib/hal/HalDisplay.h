@@ -61,6 +61,13 @@ class HalDisplay {
 
   void displayBuffer(RefreshMode mode = RefreshMode::FAST_REFRESH, bool turnOffScreen = false,
                      DisplayRefreshContext context = DisplayRefreshContext::Normal);
+
+  // True local/partial refresh of one rectangle (logical coordinates, rotated
+  // and byte-aligned internally). Only pixels inside the rect are driven; all
+  // other pixels keep their current state with no flash. Falls back to a full
+  // refresh when a windowed update is not currently safe (first frame after
+  // cold init, grayscale pass, inverted). See FreeInkDisplay::displayWindow.
+  void displayWindow(int x, int y, int width, int height);
   // Non-blocking refresh (shadow-free): starts the panel waveform and returns
   // while the panel refreshes on its own. The framebuffer must stay untouched
   // until waitRefreshComplete(), and the caller must rebuild the differential

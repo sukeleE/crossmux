@@ -33,6 +33,9 @@
 #include "apps/standby/StandbyActivity.h"
 #include "apps/sudoku/SudokuMenuActivity.h"
 #include "apps/woodfish/WoodfishActivity.h"
+#if FREEINK_DEVICE_WAVESHARE_EPAPER_397_V2
+#include "apps/music-player/MusicPlayerActivity.h"
+#endif
 #include "boot_sleep/BootActivity.h"
 #include "boot_sleep/SleepActivity.h"
 #include "browser/OpdsBookBrowserActivity.h"
@@ -512,6 +515,10 @@ void ActivityManager::goToPixelSwitch() { replaceActivityWith<PixelSwitchActivit
 void ActivityManager::goToCalculator() { replaceActivityWith<CalculatorActivity>(); }
 
 void ActivityManager::goToWoodfish() { replaceActivityWith<WoodfishActivity>(); }
+
+#if FREEINK_DEVICE_WAVESHARE_EPAPER_397_V2
+void ActivityManager::goToMusicPlayer() { replaceActivityWith<MusicPlayerActivity>(); }
+#endif
 
 void ActivityManager::goToGame2048() { replaceActivityWith<Game2048Activity>(); }
 

@@ -4,6 +4,7 @@
 #include <Epub.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
+#include <HalPowerManager.h>
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Memory.h>
@@ -23,7 +24,58 @@
 #include "fontIds.h"
 #include "util/BookCoverLoader.h"
 
+#if FREEINK_DEVICE_WAVESHARE_EPAPER_397_V2
+#include <WiFi.h>
+#include "activities/RenderLock.h"
+#include "components/icons/listIcons.h"
+#endif
+
 namespace {
+
+#if FREEINK_DEVICE_WAVESHARE_EPAPER_397_V2
+// Corner WiFi indicator geometry.
+constexpr int kWifiIcon = 24;
+constexpr int kWifiTop = 12;
+
+// Draw the 24x24 WiFi glyph (icon_wifi_24: MSB-first, bit==0 = ink, not
+// pre-rotated) and, when disconnected, a diagonal cross over its lower right.
+void drawWifiIndicator(GfxRenderer& renderer, const int x, const int y, const bool connected) {
+  constexpr int bytesPerRow = kWifiIcon / 8;  // 3
+  for (int row = 0; row < kWifiIcon; ++row) {
+    for (int col = 0; col < kWifiIcon; ++col) {
+      const uint8_t byte = icon_wifi_24_bits[row * bytesPerRow + col / 8];
+      if ((byte & (1U << (7 - col % 8))) == 0) renderer.drawPixel(x + col, y + row, true);
+    }
+  }
+  if (!connected) {
+    // Thick-enough diagonal cross in the lower-right quadrant.
+    for (int o = 0; o <= 1; ++o) {
+      renderer.drawLine(x + 12 + o, y + 13, x + 21 + o, y + 22);
+      renderer.drawLine(x + 21 + o, y + 13, x + 12 + o, y + 22);
+    }
+  }
+}
+
+// Horizontal placement: the glyph sits kWifiGap px left of the battery
+// cluster, mirroring BaseTheme::drawHeader's reserve (icon + 2px nub, plus
+// the 4px-spaced percent label when shown) and its edge inset (12 when the
+// battery is detached, otherwise headerSidePadding), so it never overlaps
+// the battery under any theme or percent-visibility setting.
+int wifiIconX(GfxRenderer& renderer) {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const int edgeInset = metrics.headerBatteryDetached ? 12 : metrics.headerSidePadding;
+  int reserve = metrics.batteryWidth + 2;
+  if (SETTINGS.hideBatteryPercentage != CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_ALWAYS) {
+    char percentText[8];
+    snprintf(percentText, sizeof(percentText), "%u%%",
+             static_cast<unsigned>(powerManager.getBatteryPercentage()));
+    reserve += 4 + renderer.getTextWidth(SMALL_FONT_ID, percentText);
+  }
+  constexpr int kWifiGap = 4;
+  return renderer.getScreenWidth() - edgeInset - reserve - kWifiGap - kWifiIcon;
+}
+#endif
+
 struct HomeMenuEntry {
   HomeMenuItem item;
   StrId label;
@@ -37,6 +89,7 @@ constexpr HomeMenuEntry kDefaultMenuOrder[] = {
     {HomeMenuItem::FILE_TRANSFER, StrId::STR_FILE_TRANSFER, Transfer},
     {HomeMenuItem::SETTINGS_MENU, StrId::STR_SETTINGS_TITLE, Settings},
     {HomeMenuItem::APPS, StrId::STR_APPS_TITLE, Apps},
+    {HomeMenuItem::MUSIC_PLAYER, StrId::STR_MUSIC_PLAYER_TITLE, MusicPlayer},
 };
 constexpr HomeMenuEntry kCarouselMenuOrder[] = {
     {HomeMenuItem::FILE_BROWSER, StrId::STR_BROWSE_FILES, Folder},
@@ -45,8 +98,9 @@ constexpr HomeMenuEntry kCarouselMenuOrder[] = {
     {HomeMenuItem::APPS, StrId::STR_APPS_TITLE, Apps},
     {HomeMenuItem::FILE_TRANSFER, StrId::STR_FILE_TRANSFER, Transfer},
     {HomeMenuItem::SETTINGS_MENU, StrId::STR_SETTINGS_TITLE, Settings},
+    {HomeMenuItem::MUSIC_PLAYER, StrId::STR_MUSIC_PLAYER_TITLE, MusicPlayer},
 };
-constexpr int kHomeMenuItemCount = 6;
+constexpr int kHomeMenuItemCount = 7;
 
 constexpr const HomeMenuEntry* menuEntryAtIndex(int index, bool hasOpds, bool carousel) {
   if (index < 0) return nullptr;
@@ -76,10 +130,16 @@ static_assert(indexToMenuItem(2, false, false) == HomeMenuItem::FILE_TRANSFER);
 static_assert(indexToMenuItem(4, false, false) == HomeMenuItem::APPS);
 static_assert(menuItemToIndex(HomeMenuItem::APPS, false, true) == 2);
 static_assert(menuItemToIndex(HomeMenuItem::SETTINGS_MENU, true, true) == 5);
+static_assert(indexToMenuItem(6, true, true) == HomeMenuItem::MUSIC_PLAYER);
+static_assert(indexToMenuItem(6, true, false) == HomeMenuItem::MUSIC_PLAYER);
+static_assert(indexToMenuItem(5, false, true) == HomeMenuItem::MUSIC_PLAYER);
+static_assert(indexToMenuItem(5, false, false) == HomeMenuItem::MUSIC_PLAYER);
+static_assert(menuItemToIndex(HomeMenuItem::MUSIC_PLAYER, true, false) == 6);
+static_assert(menuItemToIndex(HomeMenuItem::MUSIC_PLAYER, false, false) == 5);
 }  // namespace
 
 int HomeActivity::getMenuItemCount() const {
-  int count = 5;  // File Browser, Recents, File transfer, Settings, Apps
+  int count = 6;  // File Browser, Recents, File transfer, Settings, Apps, Music
   if (!recentBooks.empty()) {
     count += recentBooks.size();
   }
@@ -295,6 +355,27 @@ void HomeActivity::freeCoverBuffer() {
 }
 
 void HomeActivity::loop() {
+#if FREEINK_DEVICE_WAVESHARE_EPAPER_397_V2
+  // Update the corner WiFi indicator on connectivity changes (checked ~1/s).
+  // Baseline the first time so we don't repaint an already-correct glyph.
+  const uint32_t nowMs = millis();
+  if (nowMs - lastWifiCheckMs_ >= 1000) {
+    lastWifiCheckMs_ = nowMs;
+    const bool connected = WiFi.status() == WL_CONNECTED;
+    if (!wifiBaseline_) {
+      wifiBaseline_ = true;
+      lastWifiConnected_ = connected;
+    } else if (connected != lastWifiConnected_) {
+      lastWifiConnected_ = connected;
+      const int x = wifiIconX(renderer);
+      RenderLock lock;
+      renderer.fillRect(x, kWifiTop, kWifiIcon, kWifiIcon, false);  // erase white
+      drawWifiIndicator(renderer, x, kWifiTop, connected);
+      renderer.displayWindow(x, kWifiTop, kWifiIcon, kWifiIcon);
+    }
+  }
+#endif
+
   const int menuCount = getMenuItemCount();
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int bookCount = static_cast<int>(recentBooks.size());
@@ -326,6 +407,9 @@ void HomeActivity::loop() {
         break;
       case HomeMenuItem::APPS:
         onAppsOpen();
+        break;
+      case HomeMenuItem::MUSIC_PLAYER:
+        onMusicPlayerOpen();
         break;
       default:
         break;
@@ -605,6 +689,10 @@ void HomeActivity::render(RenderLock&&) {
 
   drawMenu();
 
+#if FREEINK_DEVICE_WAVESHARE_EPAPER_397_V2
+  drawWifiIndicator(renderer, wifiIconX(renderer), kWifiTop, WiFi.status() == WL_CONNECTED);
+#endif
+
   if (!isCarousel) {
     const auto labels = mappedInput.mapLabels(SETTINGS.standbyShortcutEnabled ? tr(STR_STANDBY_TITLE) : "",
                                               tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
@@ -635,5 +723,7 @@ void HomeActivity::onFileTransferOpen() { activityManager.goToFileTransfer(); }
 void HomeActivity::onOpdsBrowserOpen() { activityManager.goToBrowser(); }
 
 void HomeActivity::onAppsOpen() { activityManager.goToApps(); }
+
+void HomeActivity::onMusicPlayerOpen() { activityManager.goToMusicPlayer(); }
 
 void HomeActivity::onStandbyOpen() { activityManager.goToStandby(); }

@@ -60,6 +60,16 @@ void CrossPointState::toJson(JsonDocument& doc) const {
   doc["lastSleepFromReader"] = lastSleepFromReader;
   doc["showBootScreen"] = showBootScreen;
   doc["lastKnownValidTimestamp"] = lastKnownValidTimestamp;
+  doc["musicMode"] = musicMode;
+  doc["musicVolume"] = musicVolume;
+  doc["musicCookie"] = musicCookie;
+  doc["musicCsrf"] = musicCsrf;
+  doc["musicUserId"] = musicUserId;
+  doc["musicNickname"] = musicNickname;
+  doc["musicPhone"] = musicPhone;
+  doc["musicLastPlaylistId"] = musicLastPlaylistId;
+  doc["musicLastPlaylistName"] = musicLastPlaylistName;
+  doc["musicLastTrackId"] = musicLastTrackId;
 }
 
 bool CrossPointState::fromJson(JsonVariantConst doc) {
@@ -98,12 +108,42 @@ bool CrossPointState::fromJson(JsonVariantConst doc) {
   lastSleepFromReader = doc["lastSleepFromReader"] | false;
   showBootScreen = doc["showBootScreen"] | true;
   lastKnownValidTimestamp = doc["lastKnownValidTimestamp"] | static_cast<uint32_t>(0);
+
+  musicMode = doc["musicMode"] | static_cast<uint8_t>(1);
+  if (musicMode > 3) musicMode = 1;
+  musicVolume = doc["musicVolume"] | static_cast<uint8_t>(60);
+  musicVolume = std::min(musicVolume, static_cast<uint8_t>(100));
+
+  musicCookie = doc["musicCookie"] | "";
+  musicCsrf = doc["musicCsrf"] | "";
+  musicUserId = doc["musicUserId"] | static_cast<uint64_t>(0);
+  musicNickname = doc["musicNickname"] | "";
+  musicPhone = doc["musicPhone"] | "";
+
+  musicLastPlaylistId = doc["musicLastPlaylistId"] | static_cast<uint64_t>(0);
+  musicLastPlaylistName = doc["musicLastPlaylistName"] | "";
+  musicLastTrackId = doc["musicLastTrackId"] | static_cast<uint32_t>(0);
   return true;
 }
 
 bool CrossPointState::loadFromFile() {
   if (Storage.exists(getFilePath()) && PersistableStore<CrossPointState>::loadFromFile()) {
     return true;
+  }
+
+  // A real state.json exists but failed to read/parse (the branch above only
+  // fails that way when the file is present). The in-memory singleton is now
+  // back at defaults (empty cookie). Move the unreadable file aside BEFORE any
+  // later saveToFile() overwrites it with default state, which would silently
+  // destroy the only copy of the session. Kept as .bad for diagnosis.
+  if (Storage.exists(getFilePath())) {
+    const std::string badPath = std::string(getFilePath()) + ".bad";
+    if (Storage.exists(badPath.c_str())) Storage.remove(badPath.c_str());
+    if (Storage.rename(getFilePath(), badPath.c_str())) {
+      LOG_ERR("CPS", "Unreadable state.json preserved as state.json.bad");
+    } else {
+      LOG_ERR("CPS", "Unreadable state.json could NOT be moved aside");
+    }
   }
 
   if (!Storage.exists(STATE_FILE_BIN) || !loadFromBinaryFile()) {

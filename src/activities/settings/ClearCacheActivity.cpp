@@ -5,7 +5,10 @@
 #include <I18n.h>
 #include <Logging.h>
 
+#include <cstdio>
+
 #include "MappedInputManager.h"
+#include "activities/apps/music-player/MusicCache.h"
 #include "components/SubpageLayout.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -14,6 +17,7 @@
 void ClearCacheActivity::onEnter() {
   Activity::onEnter();
 
+  musicCacheBytes_ = MusicCache::totalBytes();
   state = WARNING;
   const char* options[] = {tr(STR_CANCEL), tr(STR_CLEAR_BUTTON)};
   confirmPopup.show(tr(STR_CLEAR_READING_CACHE), options, 2, 0, [this](int idx) {
@@ -44,7 +48,7 @@ void ClearCacheActivity::render(RenderLock&&) {
   const int sectionGap = SubpageLayout::sectionGap(metrics);
 
   if (state == WARNING) {
-    const int blockHeight = lineHeight * 4 + relatedGap * 2 + sectionGap;
+    const int blockHeight = lineHeight * 5 + relatedGap * 3 + sectionGap;
     int y = SubpageLayout::centeredTop(content, blockHeight);
     UITheme::drawCenteredText(renderer, textBounds, UI_10_FONT_ID, y, tr(STR_CLEAR_CACHE_WARNING_1));
     y += lineHeight + relatedGap;
@@ -54,6 +58,16 @@ void ClearCacheActivity::render(RenderLock&&) {
     UITheme::drawCenteredText(renderer, textBounds, UI_10_FONT_ID, y, tr(STR_CLEAR_CACHE_WARNING_3));
     y += lineHeight + relatedGap;
     UITheme::drawCenteredText(renderer, textBounds, UI_10_FONT_ID, y, tr(STR_CLEAR_CACHE_WARNING_4));
+    y += lineHeight + relatedGap;
+    char sizeLine[48];
+    if (musicCacheBytes_ >= 1024 * 1024) {
+      snprintf(sizeLine, sizeof(sizeLine), "%.1f MB",
+               static_cast<double>(musicCacheBytes_) / (1024.0 * 1024.0));
+    } else {
+      snprintf(sizeLine, sizeof(sizeLine), "%u KB",
+               static_cast<unsigned>(musicCacheBytes_ / 1024));
+    }
+    UITheme::drawCenteredText(renderer, textBounds, UI_10_FONT_ID, y, sizeLine);
 
     if (confirmPopup.processRender(renderer, mappedInput)) return;
 
@@ -150,6 +164,16 @@ void ClearCacheActivity::clearCache() {
     }
   }
   root.close();
+
+  // Online music cache (songs/covers/lyrics/playlists): wipe and rebuild empty.
+  if (musicCacheBytes_ > 0) {
+    if (MusicCache::clearAll()) {
+      clearedCount++;
+    } else {
+      LOG_ERR("CLEAR_CACHE", "Failed to clear music cache");
+      failedCount++;
+    }
+  }
 
   LOG_DBG("CLEAR_CACHE", "Cache cleared: %d removed, %d failed", clearedCount, failedCount);
 

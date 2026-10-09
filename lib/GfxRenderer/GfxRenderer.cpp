@@ -655,9 +655,18 @@ void GfxRenderer::drawPixel(const int x, const int y, const bool state) const {
   // Note: this call should be inlined for better performance
   rotateCoordinates(orientation, x, y, &phyX, &phyY, panelWidth, panelHeight);
 
-  // Bounds checking against runtime panel dimensions
+  // Bounds checking against runtime panel dimensions. Rate-limited: a scrolled
+  // element without a clip can miss by tens of thousands of pixels per frame,
+  // and one log line per pixel over USB starves the whole device (observed to
+  // coincide with multi-KB TCP transfers stalling). Log the first few, then
+  // one in every 500.
   if (phyX < 0 || phyX >= panelWidth || phyY < 0 || phyY >= panelHeight) {
-    LOG_ERR("GFX", "!! Outside range (%d, %d) -> (%d, %d)", x, y, phyX, phyY);
+    static uint32_t oobCount = 0;
+    const uint32_t n = ++oobCount;
+    if (n <= 3 || n % 500 == 0) {
+      LOG_ERR("GFX", "!! Outside range (%d, %d) -> (%d, %d) [count %u]", x, y,
+              phyX, phyY, static_cast<unsigned>(n));
+    }
     return;
   }
 
@@ -1833,6 +1842,17 @@ void GfxRenderer::invertScreen() const {
   for (uint32_t i = 0; i < frameBufferSize; i++) {
     frameBuffer[i] = ~frameBuffer[i];
   }
+}
+
+void GfxRenderer::displayWindow(const int x, const int y, const int width, const int height) const {
+  const AlignedMemRect r =
+      screenRectToAlignedMemRect(orientation, x, y, width, height, panelWidth, panelHeight);
+  if (!r.valid) {
+    // Empty/fully-offscreen rect (a caller bug). The framebuffer is unchanged
+    // outside it anyway; the next scheduled full repaint restores the glass.
+    return;
+  }
+  display.displayWindow(r.x, r.y, r.w, r.h);
 }
 
 void GfxRenderer::displayBuffer(HalDisplay::RefreshMode refreshMode, DisplayRefreshContext context) const {

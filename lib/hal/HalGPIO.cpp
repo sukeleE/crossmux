@@ -17,13 +17,17 @@
 #include <driver/gpio.h>
 #include <esp_sleep.h>
 
+#if FREEINK_DEVICE_WAVESHARE_EPAPER_397
 #include "Waveshare397Power.h"
+#elif FREEINK_DEVICE_WAVESHARE_EPAPER_397_V2
+#include "Waveshare397V2Power.h"
+#endif
 
 #if FREEINK_DEVICE_MURPHY_M4
 #include "MurphyM4BatchPreference.h"
 #endif
 
-#if FREEINK_DEVICE_WAVESHARE_EPAPER_397 || FREEINK_DEVICE_METALIO_EINK4
+#if FREEINK_DEVICE_WAVESHARE_EPAPER_397 || FREEINK_DEVICE_WAVESHARE_EPAPER_397_V2 || FREEINK_DEVICE_METALIO_EINK4
 #include <soc/usb_serial_jtag_reg.h>
 #endif
 
@@ -127,6 +131,10 @@ constexpr char NVS_KEY_M4_BATCH[] = "m4_batch_v3";
 #if FREEINK_DEVICE_WAVESHARE_EPAPER_397
 uint8_t wavesharePowerButtonHook() {
   return Waveshare397Power::powerButtonPressed() ? static_cast<uint8_t>(1u << HalGPIO::BTN_POWER) : 0;
+}
+#elif FREEINK_DEVICE_WAVESHARE_EPAPER_397_V2
+uint8_t wavesharePowerButtonHook() {
+  return Waveshare397V2Power::powerButtonPressed() ? static_cast<uint8_t>(1u << HalGPIO::BTN_POWER) : 0;
 }
 #endif
 
@@ -259,7 +267,7 @@ void HalGPIO::begin() {
   // always powered and its reset already ran above.
   return;
 #endif
-#if FREEINK_DEVICE_WAVESHARE_EPAPER_397
+#if FREEINK_DEVICE_WAVESHARE_EPAPER_397 || FREEINK_DEVICE_WAVESHARE_EPAPER_397_V2
   InputManager::setButtonHook(wavesharePowerButtonHook);
 #endif
 #if FREEINK_DEVICE_MURPHY_M4
@@ -471,7 +479,7 @@ bool HalGPIO::verifyPowerButtonWakeup(const uint16_t requiredDurationMs, const b
   return inputMgr.getPowerButtonHeldTime() >= calibratedDuration;
 }
 
-#if FREEINK_DEVICE_WAVESHARE_EPAPER_397 || FREEINK_DEVICE_METALIO_EINK4
+#if FREEINK_DEVICE_WAVESHARE_EPAPER_397 || FREEINK_DEVICE_WAVESHARE_EPAPER_397_V2 || FREEINK_DEVICE_METALIO_EINK4
 // Keep the last positive USB Serial/JTAG SOF result across nearby polls.
 static bool usbHostSofActive() {
   static uint32_t lastFrame = 0;
@@ -505,9 +513,13 @@ bool HalGPIO::isUsbConnected() const {
     }
     return false;
   }
-#if FREEINK_DEVICE_WAVESHARE_EPAPER_397
+#if FREEINK_DEVICE_WAVESHARE_EPAPER_397 || FREEINK_DEVICE_WAVESHARE_EPAPER_397_V2
   bool connected = false;
+#if FREEINK_DEVICE_WAVESHARE_EPAPER_397
   if (Waveshare397Power::externalPowerConnected(connected)) return connected;
+#else
+  if (Waveshare397V2Power::externalPowerConnected(connected)) return connected;
+#endif
   return usbHostSofActive();
 #endif
 #if FREEINK_DEVICE_METALIO_EINK4

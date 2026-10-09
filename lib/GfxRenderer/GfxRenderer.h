@@ -283,8 +283,11 @@ class GfxRenderer {
   // Non-inline: the host-test HalDisplay (crosspoint-simulator) lacks
   // isInverted(), and the header is compiled by test targets.
   bool isInverted() const;
-  // EXPERIMENTAL: Windowed update - display only a rectangular region
-  // void displayWindow(int x, int y, int width, int height) const;
+  // Windowed (true local) update: drive only the pixels of one rectangle in
+  // logical coordinates; the rect is rotated for the panel orientation and
+  // byte-aligned internally. Everything outside the rect is untouched and
+  // does not flash. See HalDisplay::displayWindow / FreeInkDisplay.
+  void displayWindow(int x, int y, int width, int height) const;
   void invertScreen() const;
   void clearScreen(uint8_t color = 0xFF) const;
   void getOrientedViewableTRBL(int* outTop, int* outRight, int* outBottom, int* outLeft) const;

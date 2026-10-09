@@ -28,6 +28,22 @@ class CrossPointState : public PersistableStore<CrossPointState> {
   // clock is temporarily unavailable (RTC-less boots before NTP sync).
   uint32_t lastKnownValidTimestamp = 0;
 
+  // Music Player: playback mode (MusicEngine::PlayMode ordinal) and volume 0-100.
+  uint8_t musicMode = 1;      // default RepeatAll
+  uint8_t musicVolume = 60;
+
+  // Bound NetEase Cloud Music account (empty musicCookie = not bound).
+  std::string musicCookie;    // MUSIC_U session token
+  std::string musicCsrf;      // __csrf
+  uint64_t musicUserId = 0;
+  std::string musicNickname;
+  std::string musicPhone;  // last phone used for SMS login (prefilled next time)
+
+  // Last-played online selection, used to deep-restore the player on open.
+  uint64_t musicLastPlaylistId = 0;   // last playlist (0 = none remembered)
+  std::string musicLastPlaylistName;  // display only
+  uint32_t musicLastTrackId = 0;      // last track in that playlist
+
   static const char* getFilePath() { return "/.crosspoint/state.json"; }
   bool loadFromFile();
   void toJson(JsonDocument& doc) const;

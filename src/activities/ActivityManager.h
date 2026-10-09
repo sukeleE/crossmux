@@ -20,7 +20,16 @@
 class Activity;    // forward declaration
 class RenderLock;  // forward declaration
 
-enum class HomeMenuItem { NONE, FILE_BROWSER, RECENTS, OPDS_BROWSER, FILE_TRANSFER, SETTINGS_MENU, APPS };
+enum class HomeMenuItem {
+  NONE,
+  FILE_BROWSER,
+  RECENTS,
+  OPDS_BROWSER,
+  FILE_TRANSFER,
+  SETTINGS_MENU,
+  APPS,
+  MUSIC_PLAYER,
+};
 
 /**
  * ActivityManager
@@ -126,6 +135,9 @@ class ActivityManager {
   void goToPixelSwitch();
   void goToCalculator();
   void goToWoodfish();
+#if FREEINK_DEVICE_WAVESHARE_EPAPER_397_V2
+  void goToMusicPlayer();
+#endif
   void goToAirPage();
   void goToBuddy();
   void goToStandby();

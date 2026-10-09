@@ -46,6 +46,7 @@
 #include "components/icons/transfer.h"
 #include "components/icons/wifi.h"
 #include "components/icons/woodfish.h"
+#include "components/icons/music_player.h"
 #include "fontIds.h"
 
 // Internal constants
@@ -136,6 +137,8 @@ const uint8_t* LyraTheme::iconForName(UIIcon icon, int size) {
         return CalculatorIcon;
       case UIIcon::Woodfish:
         return WoodfishIcon;
+      case UIIcon::MusicPlayer:
+        return MusicPlayerIcon;
       default:
         return nullptr;
     }

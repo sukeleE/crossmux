@@ -1,4 +1,4 @@
 [submodule "freeink-sdk"]
 	path = freeink-sdk
-	url = https://github.com/0x1abin/freeink-sdk.git
-	branch = main
+	url = https://github.com/sukeleE/freeink-sdk.git
+	branch = waveshare-397

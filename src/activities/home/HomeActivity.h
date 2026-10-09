@@ -36,6 +36,11 @@ class HomeActivity final : public Activity {
   int coverRectH = 0;
   std::vector<RecentBook> recentBooks;
   const HomeMenuItem initialMenuItem;
+  // Corner WiFi indicator bookkeeping (connected vs X); updated ~once/sec.
+  bool wifiBaseline_ = false;
+  bool lastWifiConnected_ = false;
+  uint32_t lastWifiCheckMs_ = 0;
+
   // Only enter Standby when this activity has observed a complete press→release
   // pair locally. Prevents a release edge that leaks across an activity switch
   // (e.g. Back pressed in SettingsActivity, released after HomeActivity took over)
@@ -49,6 +54,7 @@ class HomeActivity final : public Activity {
   void onFileTransferOpen();
   void onOpdsBrowserOpen();
   void onAppsOpen();
+  void onMusicPlayerOpen();
   void onStandbyOpen();
 
   int getMenuItemCount() const;

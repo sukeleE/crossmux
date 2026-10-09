@@ -8,6 +8,9 @@
 
 #include "BleInput.h"
 #include "MappedInputManager.h"
+#if FREEINK_DEVICE_WAVESHARE_EPAPER_397_V2
+#include "activities/apps/music-player/MusicEngine.h"
+#endif
 #include "SilentRestart.h"
 #include "components/UITheme.h"
 
@@ -15,6 +18,10 @@ namespace fui = freeink::ui;
 
 void UsbDriveActivity::onEnter() {
   bleinput::stop();
+#if FREEINK_DEVICE_WAVESHARE_EPAPER_397_V2
+  // The host exclusively owns the raw card; stop the player and close its file.
+  MusicEngine::getInstance().stopForUsbDrive();
+#endif
   Activity::onEnter();
   resetUi();
   app.setScreen(&UsbDriveActivity::driveScreen, this);

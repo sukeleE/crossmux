@@ -141,6 +141,20 @@ class MappedInputManager {
   Button mapScreenDirection(Button button) const;
   Labels mapFrontLabels(const char* back, const char* confirm, const char* left, const char* right) const;
   bool mapButton(Button button, bool (HalGPIO::*fn)(uint8_t) const) const;
+#if FREEINK_DEVICE_WAVESHARE_EPAPER_397_V2
+  // V2 has only Up/Down on the wheel (no physical Left/Right keys). The Back
+  // (BOOT) button doubles as a "shift": while it is held, the wheel's Up/Down
+  // act as Left/Right. A Back press used this way does not trigger Back on
+  // release. updateBackChord() runs each frame right after gpio.update() and
+  // records the synthesized Left/Right edges.
+  void updateBackChord() const;
+  mutable bool chordBackDown = false;
+  mutable bool chordUsed = false;
+  // Frame flag: swallow the Back release after it served as the chord modifier.
+  mutable bool chordBackReleaseSuppressed = false;
+  mutable std::array<bool, kButtonCount> chordLeftRightPressEdges{};
+  mutable std::array<bool, kButtonCount> chordLeftRightReleaseEdges{};
+#endif
   bool bleEdge(const std::array<bool, kButtonCount>& edges, Button button) const;
   void pollBle() const;
   // SDK edge classification (fui::edgeSwipe) + the shared decode/held-time
